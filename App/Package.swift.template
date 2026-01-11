@@ -1,0 +1,25 @@
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "{{APP_NAME}}",
+    platforms: [
+        .iOS(.v15)
+    ],
+    products: [
+        .executable(
+            name: "{{APP_NAME}}",
+            targets: ["{{APP_NAME}}"]
+        )
+    ],
+    targets: [
+        .executableTarget(
+            name: "{{APP_NAME}}",
+            dependencies: [],
+            path: "Sources",
+            resources: [
+                .process("Resources")
+            ]
+        )
+    ]
+)
