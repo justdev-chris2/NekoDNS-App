@@ -1,4 +1,4 @@
-# 🚀 SwiftBuild for Windows - iOS Development Without a Mac
+.# 🚀 SwiftBuild for Windows - iOS Development Without a Mac
 
 > **Compile SwiftUI apps on Windows using GitHub Actions. Get real .ipa files without Apple hardware.**
 
@@ -56,6 +56,12 @@ The build system will automatically scale your icon to all required iOS sizes.
 
 ## Demo
 ![Demo GIF](demo.gif)
+
+## ✅ PROVEN WORKING
+- ✅ **Compiles SwiftUI** on Windows via GitHub Actions
+- ✅ **Generates ARM64 .ipa** (real device build)
+- ✅ **Installs via AltStore** (free sideloading)
+- ✅ **Runs on actual iPhone** (see demo above)
 
 ## 🤝 Contributing
 Found a bug? Have a feature request? Open an issue or PR!
