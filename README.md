@@ -4,7 +4,7 @@
 
 ## ✨ Features
 - **Zero Mac Required** - Build iOS apps from Windows/Linux
-- **Completely Free** - Uses GitHub's macOS runners + free Apple ID
+- **Completely Free** - Uses GitHub's macOS runners + free signing (if using altstore)
 - **Real .ipa Output** - Ready for sideloading with AltStore
 - **SwiftUI Support** - Full Swift 5.9 + iOS 15+ SDK
 - **Customizable** - App name, bundle ID, icons, orientation
