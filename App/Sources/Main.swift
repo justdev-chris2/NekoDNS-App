@@ -82,7 +82,7 @@ struct ChatView: View {
     }
     
     func connectWebSocket() {
-        guard let url = URL(string: "ws://YOUR_PYTHON_SERVER_IP:8765") else { return }
+        guard let url = URL(string: "ws://temple-chat-backend.onrender.com/ws") else { return }
         socket = URLSession.shared.webSocketTask(with: url)
         socket?.resume()
         receiveMessages()
