@@ -8,7 +8,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     var rules: [DomainRule] = []
     let upstreamDNS = "8.8.8.8"
     
-    override func startTunnel(options: [String : NSObject]? = nil) {
+    func startTunnel(options: [String : NSObject]? = nil) {
         loadRules()
         setupTunnel()
     }
