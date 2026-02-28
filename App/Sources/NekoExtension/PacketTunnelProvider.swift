@@ -1,6 +1,9 @@
 import NetworkExtension
 import Network
 
+// IMPORT the models
+// If in same module, no import needed
+
 class PacketTunnelProvider: NEPacketTunnelProvider {
     var rules: [DomainRule] = []
     let upstreamDNS = "8.8.8.8"
