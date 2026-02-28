@@ -122,7 +122,7 @@ struct DomainsView: View {
     var body: some View {
         NavigationView {
             List {
-                Section(header: Text("Blocked Domains")) {
+                Section {
                     ForEach(manager.domains) { domain in
                         HStack {
                             Image(systemName: "lock.shield")
@@ -131,6 +131,8 @@ struct DomainsView: View {
                                 .font(.system(.body, design: .monospaced))
                         }
                     }
+                } header: {
+                    Text("Blocked Domains")
                 } footer: {
                     Text("These Apple revocation servers are blocked when protection is enabled")
                 }
