@@ -2,7 +2,7 @@ import SwiftUI
 import NetworkExtension
 
 struct RevokeDomain: Identifiable, Codable {
-    let id = UUID()
+    var id = UUID()
     let domain: String
     var isEnabled: Bool
 }
@@ -122,7 +122,7 @@ struct DomainsView: View {
     var body: some View {
         NavigationView {
             List {
-                Section("Blocked Domains") {
+                Section(header: Text("Blocked Domains")) {
                     ForEach(manager.domains) { domain in
                         HStack {
                             Image(systemName: "lock.shield")
