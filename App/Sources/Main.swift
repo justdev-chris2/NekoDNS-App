@@ -1,266 +1,115 @@
-import SwiftUI
+import NetworkExtension
+import Network
 
-struct Message: Identifiable, Codable {
-    var id = UUID()
-    let user: String
-    let text: String
-    let timestamp: Date
+class PacketTunnelProvider: NEPacketTunnelProvider {
+    var rules: [DomainRule] = []
+    let upstreamDNS = "8.8.8.8"
     
-    enum CodingKeys: String, CodingKey {
-        case id, user, text, timestamp
+    override func startTunnel(options: [String : NSObject]? = nil) {
+        loadRules()
+        setupTunnel()
     }
-}
-
-struct MessageBubble: View {
-    let message: Message
-    let isCurrentUser: Bool
     
-    var body: some View {
-        HStack {
-            if isCurrentUser {
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("You")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    Text(message.text)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(18)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(message.user)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                    Text(message.text)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.gray.opacity(0.1))
-                        .foregroundColor(.primary)
-                        .cornerRadius(18)
-                }
-                Spacer()
+    func loadRules() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let rulesFile = docs.appendingPathComponent("rules.json")
+        
+        if let data = try? Data(contentsOf: rulesFile),
+           let saved = try? JSONDecoder().decode([DomainRule].self, from: data) {
+            rules = saved
+        }
+    }
+    
+    func setupTunnel() {
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
+        
+        let dns = NEDNSSettings(servers: [upstreamDNS])
+        dns.matchDomains = [""]
+        settings.dnsSettings = dns
+        
+        setTunnelNetworkSettings(settings) { error in
+            self.readPackets()
+        }
+    }
+    
+    func readPackets() {
+        packetFlow.readPackets { [weak self] packets, protocols in
+            for packet in packets {
+                self?.handlePacket(packet)
             }
-        }
-        .padding(.horizontal, 8)
-    }
-}
-
-@main
-struct TempleChatApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ChatView()
+            self?.readPackets()
         }
     }
-}
-
-class ChatViewModel: ObservableObject {
-    @Published var messages: [Message] = []
-    @Published var isConnected = false
-    @Published var connectionError: String?
     
-    private var socket: URLSessionWebSocketTask?
-    private var username = "Anon"
-    
-    func setUsername(_ name: String) {
-        username = name
-    }
-    
-    func connect() {
-        guard let url = URL(string: "wss://temple-chat-backend.onrender.com/ws") else {
-            connectionError = "Invalid URL"
+    func handlePacket(_ packet: Data) {
+        guard let domain = extractDomain(from: packet) else {
+            packetFlow.writePackets([packet], withProtocols: [AF_INET as NSNumber])
             return
         }
         
-        let request = URLRequest(url: url)
-        socket = URLSession.shared.webSocketTask(with: request)
-        socket?.resume()
-        isConnected = true
-        connectionError = nil
+        let shouldBlock = rules.contains { rule in
+            rule.isActive && rule.isBlocked && domain.contains(rule.pattern)
+        }
         
-        receiveMessages()
+        // Log it
+        saveLog(domain: domain, blocked: shouldBlock)
+        
+        if shouldBlock {
+            let response = createBlockResponse(for: packet)
+            packetFlow.writePackets([response], withProtocols: [AF_INET as NSNumber])
+        } else {
+            packetFlow.writePackets([packet], withProtocols: [AF_INET as NSNumber])
+        }
     }
     
-    func disconnect() {
-        socket?.cancel(with: .goingAway, reason: nil)
-        isConnected = false
-    }
-    
-    private func receiveMessages() {
-        socket?.receive { [weak self] result in
-            guard let self = self else { return }
+    func extractDomain(from packet: Data) -> String? {
+        guard packet.count > 12 else { return nil }
+        
+        var domain = ""
+        var index = 12
+        
+        while index < packet.count {
+            let length = Int(packet[index])
+            if length == 0 { break }
             
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let message):
-                    if case .string(let text) = message,
-                       let data = text.data(using: .utf8),
-                       let decodedMessage = try? JSONDecoder().decode(Message.self, from: data) {
-                        self.messages.append(decodedMessage)
-                    }
-                    self.receiveMessages()
-                    
-                case .failure(let error):
-                    print("Receive error: \(error)")
-                    self.isConnected = false
-                    self.connectionError = "Connection lost"
-                }
+            index += 1
+            if index + length <= packet.count,
+               let part = String(data: packet[index..<index+length], encoding: .utf8) {
+                domain += domain.isEmpty ? part : ".\(part)"
             }
+            index += length
         }
+        
+        return domain.isEmpty ? nil : domain
     }
     
-    func sendMessage(_ text: String) {
-        guard !text.isEmpty, isConnected else { return }
-        
-        let message = Message(
-            user: username,
-            text: text,
-            timestamp: Date()
-        )
-        
-        // Optimistic update
-        messages.append(message)
-        
-        do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let jsonData = try encoder.encode(message)
-            guard let jsonString = String(data: jsonData, encoding: .utf8) else { return }
-            
-            socket?.send(.string(jsonString)) { error in
-                if let error = error {
-                    print("Send error: \(error)")
-                }
-            }
-        } catch {
-            print("Encode error: \(error)")
+    func createBlockResponse(for query: Data) -> Data {
+        var response = query
+        if response.count >= 2 {
+            response[2] |= 0x84
         }
-    }
-}
-
-struct ChatView: View {
-    @StateObject private var viewModel = ChatViewModel()
-    @State private var newMessage = ""
-    @State private var showUsernamePrompt = true
-    @State private var username = "Anon"
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Header
-                HStack {
-                    Text("Epsteins Kids Locked In His Temple")
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
-                    Spacer()
-                    
-                    // Connection status
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(viewModel.isConnected ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        Text(viewModel.isConnected ? "Connected" : "Disconnected")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 12)
-                .background(Color(.systemGray6))
-                
-                // Messages
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(viewModel.messages) { message in
-                                MessageBubble(
-                                    message: message,
-                                    isCurrentUser: message.user == username
-                                )
-                                .id(message.id)
-                            }
-                        }
-                        .padding()
-                    }
-                    .onChange(of: viewModel.messages.count) { _ in
-                        if let last = viewModel.messages.last {
-                            withAnimation {
-                                proxy.scrollTo(last.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-                .background(Color(.systemBackground))
-                
-                // Connection error
-                if let error = viewModel.connectionError {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                        Text(error)
-                            .font(.caption)
-                        Spacer()
-                        Button("Retry") {
-                            viewModel.connect()
-                        }
-                        .font(.caption)
-                    }
-                    .padding(8)
-                    .background(Color.orange.opacity(0.2))
-                    .foregroundColor(.orange)
-                }
-                
-                // Input
-                VStack(spacing: 0) {
-                    Divider()
-                    HStack(spacing: 12) {
-                        TextField("Message...", text: $newMessage)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onSubmit {
-                                sendMessage()
-                            }
-                        
-                        Button(action: sendMessage) {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 18))
-                                .frame(width: 44, height: 44)
-                                .background(newMessage.isEmpty ? Color.gray : Color.blue)
-                                .foregroundColor(.white)
-                                .clipShape(Circle())
-                        }
-                        .disabled(newMessage.isEmpty || !viewModel.isConnected)
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 12)
-                    .background(Color(.systemBackground))
-                }
-            }
-            .navigationBarHidden(true)
-        }
-        .onAppear {
-            viewModel.connect()
-        }
-        .onDisappear {
-            viewModel.disconnect()
-        }
-        .alert("Enter Name", isPresented: $showUsernamePrompt) {
-            TextField("Username", text: $username)
-            Button("OK") {
-                showUsernamePrompt = false
-                viewModel.setUsername(username)
-            }
-        }
+        return response
     }
     
-    private func sendMessage() {
-        let messageText = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageText.isEmpty else { return }
+    func saveLog(domain: String, blocked: Bool) {
+        let log = DNSLog(timestamp: Date(), domain: domain, blocked: blocked)
         
-        viewModel.sendMessage(messageText)
-        newMessage = ""
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let logsFile = docs.appendingPathComponent("logs.json")
+        
+        var logs: [DNSLog] = []
+        if let data = try? Data(contentsOf: logsFile),
+           let saved = try? JSONDecoder().decode([DNSLog].self, from: data) {
+            logs = saved
+        }
+        
+        logs.insert(log, at: 0)
+        if logs.count > 100 {
+            logs.removeLast()
+        }
+        
+        if let data = try? JSONEncoder().encode(logs) {
+            try? data.write(to: logsFile)
+        }
     }
 }
