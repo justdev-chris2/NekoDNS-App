@@ -66,6 +66,11 @@ jobs:
         run: |
           echo "Generating Info.plist..."
           
+          # STRIP BOM FIRST
+          cp App/Info.plist.template App/Info.plist.template.clean
+          # Remove UTF-8 BOM if present (first 3 bytes)
+          tail -c +4 App/Info.plist.template > App/Info.plist.template.clean 2>/dev/null || cp App/Info.plist.template App/Info.plist.template.clean
+          
           # Set orientation strings
           if [ "${{ steps.config.outputs.ORIENTATION_JSON }}" = '["UIInterfaceOrientationPortrait"]' ]; then
               PORTRAIT="<string>UIInterfaceOrientationPortrait</string>"
@@ -82,6 +87,7 @@ jobs:
           PORTRAIT_ESC=$(echo "$PORTRAIT" | sed 's/[\/&]/\\&/g')
           LANDSCAPE_ESC=$(echo "$LANDSCAPE" | sed 's/[\/&]/\\&/g')
           
+          # Use the cleaned template
           sed -e "s/{{APP_NAME}}/${{ steps.config.outputs.APP_NAME }}/g" \
               -e "s/{{BUNDLE_ID}}/${{ steps.config.outputs.BUNDLE_ID }}/g" \
               -e "s/{{VERSION}}/${{ steps.config.outputs.VERSION }}/g" \
@@ -89,8 +95,9 @@ jobs:
               -e "s/{{MINIMUM_IOS}}/${{ steps.config.outputs.MIN_IOS }}/g" \
               -e "s/{{ORIENTATION_PORTRAIT}}/$PORTRAIT_ESC/g" \
               -e "s/{{ORIENTATION_LANDSCAPE}}/$LANDSCAPE_ESC/g" \
-              App/Info.plist.template > App/Info.plist
+              App/Info.plist.template.clean > App/Info.plist
           
+          rm -f App/Info.plist.template.clean
           echo "✅ Info.plist generated"
           
       - name: Create Xcode Project
@@ -116,7 +123,7 @@ jobs:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: ${{ steps.config.outputs.BUNDLE_ID }}
                   PRODUCT_NAME: ${{ steps.config.outputs.APP_NAME }}
-                  TARGETED_DEVICE_FAMILY: 1,2
+                  TARGETED_DEVICE_FAMILY: "1,2"
                   CODE_SIGNING_ALLOWED: NO
           EOF
           
