@@ -20,6 +20,9 @@ jobs:
           echo "Xcode version:"
           xcodebuild -version
           
+      - name: Install xcodegen
+        run: brew install xcodegen
+          
       - name: Read config
         id: config
         run: |
@@ -41,20 +44,48 @@ jobs:
           echo "Generating Info.plist..."
           cp App/Info.plist.template App/Info.plist
           
-          # Replace variables
           sed -i '' "s/{{APP_NAME}}/${{ steps.config.outputs.APP_NAME }}/g" App/Info.plist
           sed -i '' "s/{{BUNDLE_ID}}/${{ steps.config.outputs.BUNDLE_ID }}/g" App/Info.plist
           sed -i '' "s/{{VERSION}}/${{ steps.config.outputs.VERSION }}/g" App/Info.plist
           sed -i '' "s/{{BUILD_NUMBER}}/${{ steps.config.outputs.BUILD_NUM }}/g" App/Info.plist
           sed -i '' "s/{{MINIMUM_IOS}}/${{ steps.config.outputs.MIN_IOS }}/g" App/Info.plist
           
-          echo "✅ Info.plist generated"
+      - name: Create project.yml for xcodegen
+        run: |
+          cd App
+          cat > project.yml << EOF
+          name: ${{ steps.config.outputs.APP_NAME }}
+          options:
+            bundleIdPrefix: ${{ steps.config.outputs.BUNDLE_ID }}
+            deploymentTarget:
+              iOS: ${{ steps.config.outputs.MIN_IOS }}
+          targets:
+            ${{ steps.config.outputs.APP_NAME }}:
+              type: application
+              platform: iOS
+              sources: 
+                - path: Sources
+              info:
+                path: Info.plist
+              settings:
+                base:
+                  PRODUCT_BUNDLE_IDENTIFIER: ${{ steps.config.outputs.BUNDLE_ID }}
+                  PRODUCT_NAME: ${{ steps.config.outputs.APP_NAME }}
+                  TARGETED_DEVICE_FAMILY: "1,2"
+                  CODE_SIGNING_ALLOWED: NO
+          EOF
+          
+      - name: Generate Xcode project
+        run: |
+          cd App
+          xcodegen generate
+          echo "✅ Xcode project generated"
           
       - name: Build with xcodebuild
         run: |
           cd App
-          xcodebuild -project NekoDNS.xcodeproj \
-                     -scheme NekoDNS \
+          xcodebuild -project "${{ steps.config.outputs.APP_NAME }}.xcodeproj" \
+                     -scheme "${{ steps.config.outputs.APP_NAME }}" \
                      -destination 'generic/platform=iOS' \
                      -configuration Release \
                      CODE_SIGN_IDENTITY="" \
@@ -62,8 +93,6 @@ jobs:
                      CODE_SIGNING_REQUIRED=NO \
                      -derivedDataPath Build \
                      clean build
-          
-          echo "✅ Build complete"
           
       - name: Find Built App
         run: |
@@ -83,16 +112,23 @@ jobs:
             exit 1
           fi
           
-      - name: Create .ipa
+      - name: Create Standard .ipa
         run: |
           mkdir -p Payload
           mv "${{ steps.config.outputs.APP_NAME }}.app" Payload/
           zip -qr "${{ steps.config.outputs.APP_NAME }}.ipa" Payload
-          echo "✅ .ipa created"
+          
+      - name: Create Appetize .zip
+        run: |
+          cp -r "Payload/${{ steps.config.outputs.APP_NAME }}.app" ./
+          zip -qr "${{ steps.config.outputs.APP_NAME }}-appetize.zip" \
+               "${{ steps.config.outputs.APP_NAME }}.app"
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: iOS-App
-          path: "*.ipa"
+          path: |
+            *.ipa
+            *-appetize.zip
           retention-days: 7
