@@ -121,7 +121,7 @@ jobs:
                 base:
                   PRODUCT_BUNDLE_IDENTIFIER: ${{ steps.config.outputs.BUNDLE_ID }}
                   PRODUCT_NAME: ${{ steps.config.outputs.APP_NAME }}
-                  TARGETED_DEVICE_FAMILY: "1,2"
+                  TARGETED_DEVICE_FAMILY: 1,2
                   CODE_SIGNING_ALLOWED: NO
           EOF
           
