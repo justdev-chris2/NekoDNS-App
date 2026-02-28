@@ -42,14 +42,18 @@ jobs:
       - name: Generate Info.plist from template
         run: |
           echo "Generating Info.plist..."
-          cp App/Info.plist.template App/Info.plist
+          # Strip BOM first
+          perl -pe 's/^\xEF\xBB\xBF//' App/Info.plist.template > App/Info.plist.tmp
           
-          sed -i '' "s/{{APP_NAME}}/${{ steps.config.outputs.APP_NAME }}/g" App/Info.plist
-          sed -i '' "s/{{BUNDLE_ID}}/${{ steps.config.outputs.BUNDLE_ID }}/g" App/Info.plist
-          sed -i '' "s/{{VERSION}}/${{ steps.config.outputs.VERSION }}/g" App/Info.plist
-          sed -i '' "s/{{BUILD_NUMBER}}/${{ steps.config.outputs.BUILD_NUM }}/g" App/Info.plist
-          sed -i '' "s/{{MINIMUM_IOS}}/${{ steps.config.outputs.MIN_IOS }}/g" App/Info.plist
+          # Replace variables
+          sed -i '' "s/{{APP_NAME}}/${{ steps.config.outputs.APP_NAME }}/g" App/Info.plist.tmp
+          sed -i '' "s/{{BUNDLE_ID}}/${{ steps.config.outputs.BUNDLE_ID }}/g" App/Info.plist.tmp
+          sed -i '' "s/{{VERSION}}/${{ steps.config.outputs.VERSION }}/g" App/Info.plist.tmp
+          sed -i '' "s/{{BUILD_NUMBER}}/${{ steps.config.outputs.BUILD_NUM }}/g" App/Info.plist.tmp
+          sed -i '' "s/{{MINIMUM_IOS}}/${{ steps.config.outputs.MIN_IOS }}/g" App/Info.plist.tmp
           
+          mv App/Info.plist.tmp App/Info.plist
+          echo "✅ Info.plist generated"
       - name: Create project.yml for xcodegen
         run: |
           cd App
