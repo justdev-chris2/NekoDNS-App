@@ -66,10 +66,8 @@ jobs:
         run: |
           echo "Generating Info.plist..."
           
-          # STRIP BOM FIRST
-          cp App/Info.plist.template App/Info.plist.template.clean
-          # Remove UTF-8 BOM if present (first 3 bytes)
-          tail -c +4 App/Info.plist.template > App/Info.plist.template.clean 2>/dev/null || cp App/Info.plist.template App/Info.plist.template.clean
+          # STRIP BOM USING PERL
+          perl -pe 's/^\xEF\xBB\xBF//' App/Info.plist.template > App/Info.plist.tmp
           
           # Set orientation strings
           if [ "${{ steps.config.outputs.ORIENTATION_JSON }}" = '["UIInterfaceOrientationPortrait"]' ]; then
@@ -87,7 +85,7 @@ jobs:
           PORTRAIT_ESC=$(echo "$PORTRAIT" | sed 's/[\/&]/\\&/g')
           LANDSCAPE_ESC=$(echo "$LANDSCAPE" | sed 's/[\/&]/\\&/g')
           
-          # Use the cleaned template
+          # Process the template
           sed -e "s/{{APP_NAME}}/${{ steps.config.outputs.APP_NAME }}/g" \
               -e "s/{{BUNDLE_ID}}/${{ steps.config.outputs.BUNDLE_ID }}/g" \
               -e "s/{{VERSION}}/${{ steps.config.outputs.VERSION }}/g" \
@@ -95,9 +93,9 @@ jobs:
               -e "s/{{MINIMUM_IOS}}/${{ steps.config.outputs.MIN_IOS }}/g" \
               -e "s/{{ORIENTATION_PORTRAIT}}/$PORTRAIT_ESC/g" \
               -e "s/{{ORIENTATION_LANDSCAPE}}/$LANDSCAPE_ESC/g" \
-              App/Info.plist.template.clean > App/Info.plist
+              App/Info.plist.tmp > App/Info.plist
           
-          rm -f App/Info.plist.template.clean
+          rm -f App/Info.plist.tmp
           echo "✅ Info.plist generated"
           
       - name: Create Xcode Project
