@@ -1,99 +1,54 @@
 import SwiftUI
 import NetworkExtension
 
-// REMOVE DomainRule and DNSLog from here - they're now in Models.swift
+struct RevokeDomain: Identifiable, Codable {
+    let id = UUID()
+    let domain: String
+    var isEnabled: Bool
+}
 
-class NekoManager: ObservableObject {
-    @Published var rules: [DomainRule] = []
-    @Published var logs: [DNSLog] = []
+class AntiRevokeManager: ObservableObject {
     @Published var isEnabled = false
-    @Published var statsTotal = 0
-    @Published var statsBlocked = 0
+    @Published var domains: [RevokeDomain] = [
+        RevokeDomain(domain: "ocsp.apple.com", isEnabled: true),
+        RevokeDomain(domain: "ocsp2.apple.com", isEnabled: true),
+        RevokeDomain(domain: "crl.apple.com", isEnabled: true),
+        RevokeDomain(domain: "crl.entrust.net", isEnabled: true),
+        RevokeDomain(domain: "crl3.digicert.com", isEnabled: true),
+        RevokeDomain(domain: "crl4.digicert.com", isEnabled: true),
+        RevokeDomain(domain: "ocsp.digicert.com", isEnabled: true),
+        RevokeDomain(domain: "ocsp.entrust.net", isEnabled: true),
+        RevokeDomain(domain: "valid.apple.com", isEnabled: true),
+        RevokeDomain(domain: "gdmf.apple.com", isEnabled: true),
+        RevokeDomain(domain: "mesu.apple.com", isEnabled: true),
+        RevokeDomain(domain: "xp.apple.com", isEnabled: true)
+    ]
     
-    let rulesFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("rules.json")
-    
-    let logsFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("logs.json")
-    
-    init() {
-        loadRules()
-        loadLogs()
-    }
-    
-    func loadRules() {
-        guard let data = try? Data(contentsOf: rulesFile),
-              let saved = try? JSONDecoder().decode([DomainRule].self, from: data) else { return }
-        rules = saved
-    }
-    
-    func saveRules() {
-        guard let data = try? JSONEncoder().encode(rules) else { return }
-        try? data.write(to: rulesFile)
-    }
-    
-    func addRule(pattern: String, isBlocked: Bool) {
-        let rule = DomainRule(pattern: pattern.lowercased(), isBlocked: isBlocked, isActive: true)
-        rules.append(rule)
-        saveRules()
-    }
-    
-    func deleteRule(at offsets: IndexSet) {
-        rules.remove(atOffsets: offsets)
-        saveRules()
-    }
-    
-    func toggleRule(_ rule: DomainRule) {
-        if let index = rules.firstIndex(where: { $0.id == rule.id }) {
-            rules[index].isActive.toggle()
-            saveRules()
-        }
-    }
-    
-    func loadLogs() {
-        guard let data = try? Data(contentsOf: logsFile),
-              let saved = try? JSONDecoder().decode([DNSLog].self, from: data) else { return }
-        logs = saved
-    }
-    
-    func saveLogs() {
-        guard let data = try? JSONEncoder().encode(logs) else { return }
-        try? data.write(to: logsFile)
-    }
-    
-    func toggleFilter() {
+    func toggleProtection() {
         if isEnabled {
-            stopFilter()
+            disableProtection()
         } else {
-            startFilter()
+            enableProtection()
         }
     }
     
-    func startFilter() {
-        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
-            let manager = managers?.first ?? NETunnelProviderManager()
-            manager.localizedDescription = "NekoDNS"
-            
-            let proto = NETunnelProviderProtocol()
-            proto.providerBundleIdentifier = "com.justdev-chris.NekoDNS.NekoExtension"
-            proto.serverAddress = "127.0.0.1"
-            manager.protocolConfiguration = proto
-            manager.isEnabled = true
+    func enableProtection() {
+        // Use AdGuard DNS (blocks Apple OCSP by default)
+        let manager = NEDNSSettingsManager.shared()
+        manager.loadFromPreferences { error in
+            let settings = NEDNSOverHTTPSSettings(servers: ["94.140.14.14", "94.140.15.15"])
+            settings.serverURL = URL(string: "https://dns.adguard.com/dns-query")
             
             manager.saveToPreferences { error in
-                if error == nil {
-                    try? manager.connection.startVPNTunnel()
-                    DispatchQueue.main.async {
-                        self?.isEnabled = true
-                    }
+                DispatchQueue.main.async {
+                    self.isEnabled = (error == nil)
                 }
             }
         }
     }
     
-    func stopFilter() {
-        NETunnelProviderManager.loadAllFromPreferences { managers, error in
-            managers?.first?.connection.stopVPNTunnel()
+    func disableProtection() {
+        NEDNSSettingsManager.shared().removeFromPreferences { error in
             DispatchQueue.main.async {
                 self.isEnabled = false
             }
@@ -101,155 +56,92 @@ class NekoManager: ObservableObject {
     }
 }
 
-// MARK: - Views
 struct ContentView: View {
-    @StateObject private var manager = NekoManager()
+    @StateObject private var manager = AntiRevokeManager()
     @State private var selectedTab = 0
     
     var body: some View {
         TabView(selection: $selectedTab) {
             DashboardView(manager: manager)
-                .tabItem { Label("Dashboard", systemImage: "gauge") }
+                .tabItem { Label("Protection", systemImage: "shield") }
                 .tag(0)
             
-            RulesView(manager: manager)
-                .tabItem { Label("Rules", systemImage: "list.bullet") }
+            DomainsView(manager: manager)
+                .tabItem { Label("Blocked", systemImage: "list.bullet") }
                 .tag(1)
-            
-            LogsView(manager: manager)
-                .tabItem { Label("Logs", systemImage: "doc.text") }
-                .tag(2)
         }
     }
 }
 
 struct DashboardView: View {
-    @ObservedObject var manager: NekoManager
+    @ObservedObject var manager: AntiRevokeManager
     
     var body: some View {
         NavigationView {
             List {
                 Section {
                     HStack {
-                        Text("Status")
+                        Text("Anti-Revoke")
                         Spacer()
-                        Text(manager.isEnabled ? "Active" : "Inactive")
-                            .foregroundColor(manager.isEnabled ? .green : .red)
+                        Toggle("", isOn: Binding(
+                            get: { manager.isEnabled },
+                            set: { _ in manager.toggleProtection() }
+                        ))
                     }
-                    
-                    Button(manager.isEnabled ? "Stop Filter" : "Start Filter") {
-                        manager.toggleFilter()
-                    }
+                } footer: {
+                    Text("Blocks Apple's revocation servers to keep sideloaded apps from expiring")
                 }
                 
-                Section("Statistics") {
-                    HStack {
-                        Text("Total Queries")
-                        Spacer()
-                        Text("\(manager.statsTotal)")
-                    }
-                    HStack {
-                        Text("Blocked")
-                        Spacer()
-                        Text("\(manager.statsBlocked)")
+                Section("How it works") {
+                    Text("Uses AdGuard DNS which blocks Apple OCSP servers")
+                        .font(.caption)
+                    
+                    Text("No VPN or extension needed - just DNS settings")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+                
+                Section("Status") {
+                    if manager.isEnabled {
+                        Label("Protection Active", systemImage: "checkmark.shield")
+                            .foregroundColor(.green)
+                    } else {
+                        Label("Protection Off", systemImage: "shield.slash")
                             .foregroundColor(.red)
                     }
                 }
             }
-            .navigationTitle("NekoDNS")
+            .navigationTitle("Anti-Revoke")
         }
     }
 }
 
-struct RulesView: View {
-    @ObservedObject var manager: NekoManager
-    @State private var newPattern = ""
-    @State private var isBlocked = true
-    @State private var showAdd = false
+struct DomainsView: View {
+    @ObservedObject var manager: AntiRevokeManager
     
     var body: some View {
         NavigationView {
             List {
-                ForEach(manager.rules) { rule in
-                    HStack {
-                        Image(systemName: rule.isBlocked ? "nosign" : "checkmark.circle")
-                            .foregroundColor(rule.isBlocked ? .red : .green)
-                        
-                        Text(rule.pattern)
-                            .strikethrough(!rule.isActive)
-                        
-                        Spacer()
-                        
-                        Button {
-                            manager.toggleRule(rule)
-                        } label: {
-                            Image(systemName: rule.isActive ? "pause" : "play")
+                Section("Blocked Domains") {
+                    ForEach(manager.domains) { domain in
+                        HStack {
+                            Image(systemName: "lock.shield")
+                                .foregroundColor(.green)
+                            Text(domain.domain)
+                                .font(.system(.body, design: .monospaced))
                         }
                     }
-                }
-                .onDelete(perform: manager.deleteRule)
-            }
-            .navigationTitle("Rules")
-            .toolbar {
-                Button("Add") { showAdd = true }
-            }
-            .sheet(isPresented: $showAdd) {
-                NavigationView {
-                    Form {
-                        TextField("example.com", text: $newPattern)
-                            .autocapitalization(.none)
-                        
-                        Picker("Action", selection: $isBlocked) {
-                            Text("Block").tag(true)
-                            Text("Allow").tag(false)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    .navigationTitle("New Rule")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showAdd = false }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Save") {
-                                if !newPattern.isEmpty {
-                                    manager.addRule(pattern: newPattern, isBlocked: isBlocked)
-                                    newPattern = ""
-                                    showAdd = false
-                                }
-                            }
-                        }
-                    }
+                } footer: {
+                    Text("These Apple revocation servers are blocked when protection is enabled")
                 }
             }
-        }
-    }
-}
-
-struct LogsView: View {
-    @ObservedObject var manager: NekoManager
-    
-    var body: some View {
-        NavigationView {
-            List(manager.logs) { log in
-                VStack(alignment: .leading) {
-                    HStack {
-                        Image(systemName: log.blocked ? "nosign" : "checkmark")
-                            .foregroundColor(log.blocked ? .red : .green)
-                        Text(log.domain)
-                    }
-                    Text(log.timestamp, style: .time)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-            }
-            .navigationTitle("Logs")
+            .navigationTitle("Blocklist")
         }
     }
 }
 
 @main
-struct NekoDNSApp: App {
+struct AntiRevokeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
