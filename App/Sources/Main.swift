@@ -1,115 +1,258 @@
+import SwiftUI
 import NetworkExtension
-import Network
 
-class PacketTunnelProvider: NEPacketTunnelProvider {
-    var rules: [DomainRule] = []
-    let upstreamDNS = "8.8.8.8"
+// REMOVE DomainRule and DNSLog from here - they're now in Models.swift
+
+class NekoManager: ObservableObject {
+    @Published var rules: [DomainRule] = []
+    @Published var logs: [DNSLog] = []
+    @Published var isEnabled = false
+    @Published var statsTotal = 0
+    @Published var statsBlocked = 0
     
-    override func startTunnel(options: [String : NSObject]? = nil) {
+    let rulesFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("rules.json")
+    
+    let logsFile = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("logs.json")
+    
+    init() {
         loadRules()
-        setupTunnel()
+        loadLogs()
     }
     
     func loadRules() {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let rulesFile = docs.appendingPathComponent("rules.json")
-        
-        if let data = try? Data(contentsOf: rulesFile),
-           let saved = try? JSONDecoder().decode([DomainRule].self, from: data) {
-            rules = saved
+        guard let data = try? Data(contentsOf: rulesFile),
+              let saved = try? JSONDecoder().decode([DomainRule].self, from: data) else { return }
+        rules = saved
+    }
+    
+    func saveRules() {
+        guard let data = try? JSONEncoder().encode(rules) else { return }
+        try? data.write(to: rulesFile)
+    }
+    
+    func addRule(pattern: String, isBlocked: Bool) {
+        let rule = DomainRule(pattern: pattern.lowercased(), isBlocked: isBlocked, isActive: true)
+        rules.append(rule)
+        saveRules()
+    }
+    
+    func deleteRule(at offsets: IndexSet) {
+        rules.remove(atOffsets: offsets)
+        saveRules()
+    }
+    
+    func toggleRule(_ rule: DomainRule) {
+        if let index = rules.firstIndex(where: { $0.id == rule.id }) {
+            rules[index].isActive.toggle()
+            saveRules()
         }
     }
     
-    func setupTunnel() {
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
-        
-        let dns = NEDNSSettings(servers: [upstreamDNS])
-        dns.matchDomains = [""]
-        settings.dnsSettings = dns
-        
-        setTunnelNetworkSettings(settings) { error in
-            self.readPackets()
-        }
+    func loadLogs() {
+        guard let data = try? Data(contentsOf: logsFile),
+              let saved = try? JSONDecoder().decode([DNSLog].self, from: data) else { return }
+        logs = saved
     }
     
-    func readPackets() {
-        packetFlow.readPackets { [weak self] packets, protocols in
-            for packet in packets {
-                self?.handlePacket(packet)
-            }
-            self?.readPackets()
-        }
+    func saveLogs() {
+        guard let data = try? JSONEncoder().encode(logs) else { return }
+        try? data.write(to: logsFile)
     }
     
-    func handlePacket(_ packet: Data) {
-        guard let domain = extractDomain(from: packet) else {
-            packetFlow.writePackets([packet], withProtocols: [AF_INET as NSNumber])
-            return
-        }
-        
-        let shouldBlock = rules.contains { rule in
-            rule.isActive && rule.isBlocked && domain.contains(rule.pattern)
-        }
-        
-        // Log it
-        saveLog(domain: domain, blocked: shouldBlock)
-        
-        if shouldBlock {
-            let response = createBlockResponse(for: packet)
-            packetFlow.writePackets([response], withProtocols: [AF_INET as NSNumber])
+    func toggleFilter() {
+        if isEnabled {
+            stopFilter()
         } else {
-            packetFlow.writePackets([packet], withProtocols: [AF_INET as NSNumber])
+            startFilter()
         }
     }
     
-    func extractDomain(from packet: Data) -> String? {
-        guard packet.count > 12 else { return nil }
-        
-        var domain = ""
-        var index = 12
-        
-        while index < packet.count {
-            let length = Int(packet[index])
-            if length == 0 { break }
+    func startFilter() {
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
+            let manager = managers?.first ?? NETunnelProviderManager()
+            manager.localizedDescription = "NekoDNS"
             
-            index += 1
-            if index + length <= packet.count,
-               let part = String(data: packet[index..<index+length], encoding: .utf8) {
-                domain += domain.isEmpty ? part : ".\(part)"
+            let proto = NETunnelProviderProtocol()
+            proto.providerBundleIdentifier = "com.justdev-chris.NekoDNS.NekoExtension"
+            proto.serverAddress = "127.0.0.1"
+            manager.protocolConfiguration = proto
+            manager.isEnabled = true
+            
+            manager.saveToPreferences { error in
+                if error == nil {
+                    try? manager.connection.startVPNTunnel()
+                    DispatchQueue.main.async {
+                        self?.isEnabled = true
+                    }
+                }
             }
-            index += length
         }
-        
-        return domain.isEmpty ? nil : domain
     }
     
-    func createBlockResponse(for query: Data) -> Data {
-        var response = query
-        if response.count >= 2 {
-            response[2] |= 0x84
+    func stopFilter() {
+        NETunnelProviderManager.loadAllFromPreferences { managers, error in
+            managers?.first?.connection.stopVPNTunnel()
+            DispatchQueue.main.async {
+                self.isEnabled = false
+            }
         }
-        return response
     }
+}
+
+// MARK: - Views
+struct ContentView: View {
+    @StateObject private var manager = NekoManager()
+    @State private var selectedTab = 0
     
-    func saveLog(domain: String, blocked: Bool) {
-        let log = DNSLog(timestamp: Date(), domain: domain, blocked: blocked)
-        
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let logsFile = docs.appendingPathComponent("logs.json")
-        
-        var logs: [DNSLog] = []
-        if let data = try? Data(contentsOf: logsFile),
-           let saved = try? JSONDecoder().decode([DNSLog].self, from: data) {
-            logs = saved
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            DashboardView(manager: manager)
+                .tabItem { Label("Dashboard", systemImage: "gauge") }
+                .tag(0)
+            
+            RulesView(manager: manager)
+                .tabItem { Label("Rules", systemImage: "list.bullet") }
+                .tag(1)
+            
+            LogsView(manager: manager)
+                .tabItem { Label("Logs", systemImage: "doc.text") }
+                .tag(2)
         }
-        
-        logs.insert(log, at: 0)
-        if logs.count > 100 {
-            logs.removeLast()
+    }
+}
+
+struct DashboardView: View {
+    @ObservedObject var manager: NekoManager
+    
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(manager.isEnabled ? "Active" : "Inactive")
+                            .foregroundColor(manager.isEnabled ? .green : .red)
+                    }
+                    
+                    Button(manager.isEnabled ? "Stop Filter" : "Start Filter") {
+                        manager.toggleFilter()
+                    }
+                }
+                
+                Section("Statistics") {
+                    HStack {
+                        Text("Total Queries")
+                        Spacer()
+                        Text("\(manager.statsTotal)")
+                    }
+                    HStack {
+                        Text("Blocked")
+                        Spacer()
+                        Text("\(manager.statsBlocked)")
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .navigationTitle("NekoDNS")
         }
-        
-        if let data = try? JSONEncoder().encode(logs) {
-            try? data.write(to: logsFile)
+    }
+}
+
+struct RulesView: View {
+    @ObservedObject var manager: NekoManager
+    @State private var newPattern = ""
+    @State private var isBlocked = true
+    @State private var showAdd = false
+    
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(manager.rules) { rule in
+                    HStack {
+                        Image(systemName: rule.isBlocked ? "nosign" : "checkmark.circle")
+                            .foregroundColor(rule.isBlocked ? .red : .green)
+                        
+                        Text(rule.pattern)
+                            .strikethrough(!rule.isActive)
+                        
+                        Spacer()
+                        
+                        Button {
+                            manager.toggleRule(rule)
+                        } label: {
+                            Image(systemName: rule.isActive ? "pause" : "play")
+                        }
+                    }
+                }
+                .onDelete(perform: manager.deleteRule)
+            }
+            .navigationTitle("Rules")
+            .toolbar {
+                Button("Add") { showAdd = true }
+            }
+            .sheet(isPresented: $showAdd) {
+                NavigationView {
+                    Form {
+                        TextField("example.com", text: $newPattern)
+                            .autocapitalization(.none)
+                        
+                        Picker("Action", selection: $isBlocked) {
+                            Text("Block").tag(true)
+                            Text("Allow").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    .navigationTitle("New Rule")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showAdd = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Save") {
+                                if !newPattern.isEmpty {
+                                    manager.addRule(pattern: newPattern, isBlocked: isBlocked)
+                                    newPattern = ""
+                                    showAdd = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct LogsView: View {
+    @ObservedObject var manager: NekoManager
+    
+    var body: some View {
+        NavigationView {
+            List(manager.logs) { log in
+                VStack(alignment: .leading) {
+                    HStack {
+                        Image(systemName: log.blocked ? "nosign" : "checkmark")
+                            .foregroundColor(log.blocked ? .red : .green)
+                        Text(log.domain)
+                    }
+                    Text(log.timestamp, style: .time)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
+            .navigationTitle("Logs")
+        }
+    }
+}
+
+@main
+struct NekoDNSApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
         }
     }
 }
