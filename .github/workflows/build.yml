@@ -122,6 +122,7 @@ jobs:
                     PRODUCT_NAME: ${{ steps.config.outputs.APP_NAME }}
                     TARGETED_DEVICE_FAMILY: "1,2"
                     CODE_SIGNING_ALLOWED: NO
+                    INFOPLIST_OUTPUT_FORMAT: xml
           EOF
           
       - name: Generate Xcode project
