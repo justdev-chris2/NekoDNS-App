@@ -164,6 +164,10 @@ jobs:
       - name: Strip BOM from compiled app
         run: |
           perl -pi -e 's/^\xEF\xBB\xBF//' "${{ steps.config.outputs.APP_NAME }}.app/Info.plist"
+
+      - name: Debug plist hex
+        run: |
+          xxd "${{ steps.config.outputs.APP_NAME }}.app/Info.plist" | head -1
           
       - name: Create Standard .ipa
         run: |
