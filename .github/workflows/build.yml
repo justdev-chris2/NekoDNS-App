@@ -39,44 +39,83 @@ jobs:
           echo "BUILD_NUM=$BUILD_NUM" >> $GITHUB_OUTPUT
           echo "MIN_IOS=$MIN_IOS" >> $GITHUB_OUTPUT
           
-      - name: Generate Info.plist from template
+      - name: Generate Info.plist from scratch
         run: |
           echo "Generating Info.plist..."
-          # Strip BOM first
-          perl -pe 's/^\xEF\xBB\xBF//' App/Info.plist.template > App/Info.plist.tmp
-          
-          # Replace variables
-          sed -i '' "s/{{APP_NAME}}/${{ steps.config.outputs.APP_NAME }}/g" App/Info.plist.tmp
-          sed -i '' "s/{{BUNDLE_ID}}/${{ steps.config.outputs.BUNDLE_ID }}/g" App/Info.plist.tmp
-          sed -i '' "s/{{VERSION}}/${{ steps.config.outputs.VERSION }}/g" App/Info.plist.tmp
-          sed -i '' "s/{{BUILD_NUMBER}}/${{ steps.config.outputs.BUILD_NUM }}/g" App/Info.plist.tmp
-          sed -i '' "s/{{MINIMUM_IOS}}/${{ steps.config.outputs.MIN_IOS }}/g" App/Info.plist.tmp
-          
-          mv App/Info.plist.tmp App/Info.plist
+          cat > App/Info.plist << EOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>CFBundleDevelopmentRegion</key>
+                <string>en</string>
+                <key>CFBundleExecutable</key>
+                <string>${{ steps.config.outputs.APP_NAME }}</string>
+                <key>CFBundleIdentifier</key>
+                <string>${{ steps.config.outputs.BUNDLE_ID }}</string>
+                <key>CFBundleInfoDictionaryVersion</key>
+                <string>6.0</string>
+                <key>CFBundleName</key>
+                <string>${{ steps.config.outputs.APP_NAME }}</string>
+                <key>CFBundlePackageType</key>
+                <string>APPL</string>
+                <key>CFBundleShortVersionString</key>
+                <string>${{ steps.config.outputs.VERSION }}</string>
+                <key>CFBundleVersion</key>
+                <string>${{ steps.config.outputs.BUILD_NUM }}</string>
+                <key>LSRequiresIPhoneOS</key>
+                <true/>
+                <key>MinimumOSVersion</key>
+                <string>${{ steps.config.outputs.MIN_IOS }}</string>
+                <key>UIDeviceFamily</key>
+                <array>
+                    <integer>1</integer>
+                    <integer>2</integer>
+                </array>
+                <key>UILaunchScreen</key>
+                <dict/>
+                <key>UIRequiredDeviceCapabilities</key>
+                <array>
+                    <string>arm64</string>
+                </array>
+                <key>UISupportedInterfaceOrientations~iphone</key>
+                <array>
+                    <string>UIInterfaceOrientationPortrait</string>
+                </array>
+                <key>UISupportedInterfaceOrientations~ipad</key>
+                <array>
+                    <string>UIInterfaceOrientationPortrait</string>
+                    <string>UIInterfaceOrientationLandscapeLeft</string>
+                    <string>UIInterfaceOrientationLandscapeRight</string>
+                </array>
+            </dict>
+            </plist>
+          EOF
           echo "✅ Info.plist generated"
+          
       - name: Create project.yml for xcodegen
         run: |
           cd App
           cat > project.yml << EOF
-          name: ${{ steps.config.outputs.APP_NAME }}
-          options:
-            bundleIdPrefix: ${{ steps.config.outputs.BUNDLE_ID }}
-            deploymentTarget:
-              iOS: ${{ steps.config.outputs.MIN_IOS }}
-          targets:
-            ${{ steps.config.outputs.APP_NAME }}:
-              type: application
-              platform: iOS
-              sources: 
-                - path: Sources
-              info:
-                path: Info.plist
-              settings:
-                base:
-                  PRODUCT_BUNDLE_IDENTIFIER: ${{ steps.config.outputs.BUNDLE_ID }}
-                  PRODUCT_NAME: ${{ steps.config.outputs.APP_NAME }}
-                  TARGETED_DEVICE_FAMILY: "1,2"
-                  CODE_SIGNING_ALLOWED: NO
+            name: ${{ steps.config.outputs.APP_NAME }}
+            options:
+              bundleIdPrefix: ${{ steps.config.outputs.BUNDLE_ID }}
+              deploymentTarget:
+                iOS: ${{ steps.config.outputs.MIN_IOS }}
+            targets:
+              ${{ steps.config.outputs.APP_NAME }}:
+                type: application
+                platform: iOS
+                sources: 
+                  - path: Sources
+                info:
+                  path: Info.plist
+                settings:
+                  base:
+                    PRODUCT_BUNDLE_IDENTIFIER: ${{ steps.config.outputs.BUNDLE_ID }}
+                    PRODUCT_NAME: ${{ steps.config.outputs.APP_NAME }}
+                    TARGETED_DEVICE_FAMILY: "1,2"
+                    CODE_SIGNING_ALLOWED: NO
           EOF
           
       - name: Generate Xcode project
