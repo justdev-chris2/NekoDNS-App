@@ -1,5 +1,5 @@
 import SwiftUI
-import NetworkExtension
+import UniformTypeIdentifiers
 
 struct RevokeDomain: Identifiable, Codable {
     var id = UUID()
@@ -29,8 +29,9 @@ class AntiRevokeManager: ObservableObject {
         let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let profileURL = docsURL.appendingPathComponent("antirevoke.mobileconfig")
         
-        // Create profile content
         let enabledDomains = domains.filter { $0.isEnabled }.map { $0.domain }
+        
+        let domainStrings = enabledDomains.map { "<string>\($0)</string>" }.joined(separator: "\n                            ")
         
         let profileContent = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -65,7 +66,7 @@ class AntiRevokeManager: ObservableObject {
                         </array>
                         <key>SupplementalMatchDomains</key>
                         <array>
-                            \(enabledDomains.map { "<string>\($0)</string>" }.joined(separator: "\n                            "))
+                            \(domainStrings)
                         </array>
                     </dict>
                 </dict>
@@ -95,65 +96,14 @@ class AntiRevokeManager: ObservableObject {
     func installProfile() {
         let profileURL = generateProfile()
         
-        // Share the profile
         let activityVC = UIActivityViewController(
             activityItems: [profileURL],
             applicationActivities: nil
         )
         
-        // Get the current window scene
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = windowScene.windows.first?.rootViewController {
             rootVC.present(activityVC, animated: true)
-        }
-    }
-}
-    
-    func toggleProtection() {
-        if isEnabled {
-            disableProtection()
-        } else {
-            enableProtection()
-        }
-    }
-    
-    func enableProtection() {
-        // Use AdGuard DNS (blocks Apple OCSP by default)
-        let manager = NEDNSSettingsManager.shared()
-        manager.loadFromPreferences { error in
-            let settings = NEDNSOverHTTPSSettings(servers: ["94.140.14.14", "94.140.15.15"])
-            settings.serverURL = URL(string: "https://dns.adguard.com/dns-query")
-            
-            manager.saveToPreferences { error in
-                DispatchQueue.main.async {
-                    self.isEnabled = (error == nil)
-                }
-            }
-        }
-    }
-    
-    func disableProtection() {
-        NEDNSSettingsManager.shared().removeFromPreferences { error in
-            DispatchQueue.main.async {
-                self.isEnabled = false
-            }
-        }
-    }
-}
-
-struct ContentView: View {
-    @StateObject private var manager = AntiRevokeManager()
-    @State private var selectedTab = 0
-    
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            DashboardView(manager: manager)
-                .tabItem { Label("Protection", systemImage: "shield") }
-                .tag(0)
-            
-            DomainsView(manager: manager)
-                .tabItem { Label("Blocked", systemImage: "list.bullet") }
-                .tag(1)
         }
     }
 }
@@ -227,21 +177,41 @@ struct DomainsView: View {
         NavigationView {
             List {
                 Section {
-                    ForEach(manager.domains) { domain in
+                    ForEach($manager.domains) { $domain in
                         HStack {
                             Image(systemName: "lock.shield")
-                                .foregroundColor(.green)
+                                .foregroundColor(domain.isEnabled ? .green : .gray)
                             Text(domain.domain)
                                 .font(.system(.body, design: .monospaced))
+                            Spacer()
+                            Toggle("", isOn: $domain.isEnabled)
+                                .labelsHidden()
                         }
                     }
                 } header: {
                     Text("Blocked Domains")
                 } footer: {
-                    Text("These Apple revocation servers are blocked when protection is enabled")
+                    Text("Toggle domains on/off. Only enabled domains are blocked when profile is installed.")
                 }
             }
             .navigationTitle("Blocklist")
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var manager = AntiRevokeManager()
+    @State private var selectedTab = 0
+    
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            DashboardView(manager: manager)
+                .tabItem { Label("Protection", systemImage: "shield") }
+                .tag(0)
+            
+            DomainsView(manager: manager)
+                .tabItem { Label("Blocked", systemImage: "list.bullet") }
+                .tag(1)
         }
     }
 }
