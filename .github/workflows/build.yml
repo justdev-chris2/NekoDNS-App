@@ -160,6 +160,10 @@ jobs:
             echo "❌ No .app found!"
             exit 1
           fi
+
+      - name: Strip BOM from compiled app
+        run: |
+          perl -pi -e 's/^\xEF\xBB\xBF//' "${{ steps.config.outputs.APP_NAME }}.app/Info.plist"
           
       - name: Create Standard .ipa
         run: |
