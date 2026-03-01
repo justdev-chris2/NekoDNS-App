@@ -172,11 +172,6 @@ jobs:
         run: |
           python3 signer.py "${{ steps.config.outputs.APP_NAME }}-unsigned.ipa" -o "${{ steps.config.outputs.APP_NAME }}.ipa"
           
-      - name: Create Appetize .zip
-        run: |
-          cp -rf "${{ steps.config.outputs.APP_NAME }}.app" ./
-          zip -qr "${{ steps.config.outputs.APP_NAME }}-appetize.zip" \
-               "${{ steps.config.outputs.APP_NAME }}.app"
           
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
