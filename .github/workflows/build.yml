@@ -174,7 +174,7 @@ jobs:
           
       - name: Create Appetize .zip
         run: |
-          cp -r "${{ steps.config.outputs.APP_NAME }}.app" ./
+          cp -rf "${{ steps.config.outputs.APP_NAME }}.app" ./
           zip -qr "${{ steps.config.outputs.APP_NAME }}-appetize.zip" \
                "${{ steps.config.outputs.APP_NAME }}.app"
           
