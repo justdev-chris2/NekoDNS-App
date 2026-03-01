@@ -24,6 +24,91 @@ class AntiRevokeManager: ObservableObject {
         RevokeDomain(domain: "xp.apple.com", isEnabled: true)
     ]
     
+    func generateProfile() -> URL {
+        let fileManager = FileManager.default
+        let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let profileURL = docsURL.appendingPathComponent("antirevoke.mobileconfig")
+        
+        // Create profile content
+        let enabledDomains = domains.filter { $0.isEnabled }.map { $0.domain }
+        
+        let profileContent = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>PayloadContent</key>
+            <array>
+                <dict>
+                    <key>PayloadDescription</key>
+                    <string>Blocks Apple revocation servers</string>
+                    <key>PayloadDisplayName</key>
+                    <string>Anti-Revoke DNS</string>
+                    <key>PayloadIdentifier</key>
+                    <string>com.justdev-chris.antirevoke.dns</string>
+                    <key>PayloadType</key>
+                    <string>com.apple.dnsSettings.managed</string>
+                    <key>PayloadUUID</key>
+                    <string>\(UUID().uuidString)</string>
+                    <key>PayloadVersion</key>
+                    <integer>1</integer>
+                    <key>DNSSettings</key>
+                    <dict>
+                        <key>DNSProtocol</key>
+                        <string>HTTPS</string>
+                        <key>ServerURL</key>
+                        <string>https://dns.adguard.com/dns-query</string>
+                        <key>ServerAddresses</key>
+                        <array>
+                            <string>94.140.14.14</string>
+                            <string>94.140.15.15</string>
+                        </array>
+                        <key>SupplementalMatchDomains</key>
+                        <array>
+                            \(enabledDomains.map { "<string>\($0)</string>" }.joined(separator: "\n                            "))
+                        </array>
+                    </dict>
+                </dict>
+            </array>
+            <key>PayloadDescription</key>
+            <string>Blocks Apple OCSP and revocation servers to prevent app revokes</string>
+            <key>PayloadDisplayName</key>
+            <string>Anti-Revoke</string>
+            <key>PayloadIdentifier</key>
+            <string>com.justdev-chris.antirevoke</string>
+            <key>PayloadRemovalDisallowed</key>
+            <false/>
+            <key>PayloadType</key>
+            <string>Configuration</string>
+            <key>PayloadUUID</key>
+            <string>\(UUID().uuidString)</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>
+        </plist>
+        """
+        
+        try? profileContent.write(to: profileURL, atomically: true, encoding: .utf8)
+        return profileURL
+    }
+    
+    func installProfile() {
+        let profileURL = generateProfile()
+        
+        // Share the profile
+        let activityVC = UIActivityViewController(
+            activityItems: [profileURL],
+            applicationActivities: nil
+        )
+        
+        // Get the current window scene
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            rootVC.present(activityVC, animated: true)
+        }
+    }
+}
+    
     func toggleProtection() {
         if isEnabled {
             disableProtection()
@@ -80,20 +165,38 @@ struct DashboardView: View {
         NavigationView {
             List {
                 Section {
-                    HStack {
-                        Text("Anti-Revoke")
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { manager.isEnabled },
-                            set: { _ in manager.toggleProtection() }
-                        ))
+                    Button(action: {
+                        manager.installProfile()
+                    }) {
+                        HStack {
+                            Image(systemName: "shield.fill")
+                                .foregroundColor(.blue)
+                            Text("Generate & Install Profile")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 } footer: {
-                    Text("Blocks Apple's revocation servers to keep sideloaded apps from expiring")
+                    Text("This will create a configuration profile that blocks Apple revocation servers. Install it in Settings app.")
+                }
+                
+                Section("Status") {
+                    let enabledCount = manager.domains.filter { $0.isEnabled }.count
+                    HStack {
+                        Text("Blocked domains")
+                        Spacer()
+                        Text("\(enabledCount)/\(manager.domains.count)")
+                            .foregroundColor(enabledCount > 0 ? .green : .red)
+                    }
                 }
                 
                 Section("How it works") {
-                    Text("Uses AdGuard DNS which blocks Apple OCSP servers")
+                    Text("The profile configures DNS to block Apple's OCSP servers, preventing app revocation checks.")
                         .font(.caption)
                     
                     Text("No VPN or extension needed - just DNS settings")
@@ -101,14 +204,15 @@ struct DashboardView: View {
                         .foregroundColor(.green)
                 }
                 
-                Section("Status") {
-                    if manager.isEnabled {
-                        Label("Protection Active", systemImage: "checkmark.shield")
-                            .foregroundColor(.green)
-                    } else {
-                        Label("Protection Off", systemImage: "shield.slash")
-                            .foregroundColor(.red)
+                Section("Instructions") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("1. Tap 'Generate & Install Profile'", systemImage: "1.circle")
+                        Label("2. Share to yourself (AirDrop/Mail)", systemImage: "2.circle")
+                        Label("3. Open on this device", systemImage: "3.circle")
+                        Label("4. Go to Settings → Profile Downloaded", systemImage: "4.circle")
+                        Label("5. Tap Install", systemImage: "5.circle")
                     }
+                    .font(.caption)
                 }
             }
             .navigationTitle("Anti-Revoke")
