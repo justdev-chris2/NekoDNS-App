@@ -161,24 +161,20 @@ jobs:
             echo "❌ No .app found!"
             exit 1
           fi
-
-      - name: Strip BOM from compiled app
-        run: |
-          perl -pi -e 's/^\xEF\xBB\xBF//' "${{ steps.config.outputs.APP_NAME }}.app/Info.plist"
-
-      - name: Debug plist hex
-        run: |
-          xxd "${{ steps.config.outputs.APP_NAME }}.app/Info.plist" | head -1
           
-      - name: Create Standard .ipa
+      - name: Create unsigned .ipa
         run: |
           mkdir -p Payload
-          mv "${{ steps.config.outputs.APP_NAME }}.app" Payload/
-          zip -qr "${{ steps.config.outputs.APP_NAME }}.ipa" Payload
+          cp -r "${{ steps.config.outputs.APP_NAME }}.app" Payload/
+          zip -qr "${{ steps.config.outputs.APP_NAME }}-unsigned.ipa" Payload
+          
+      - name: Run custom signer
+        run: |
+          python3 signer.py "${{ steps.config.outputs.APP_NAME }}-unsigned.ipa" -o "${{ steps.config.outputs.APP_NAME }}.ipa"
           
       - name: Create Appetize .zip
         run: |
-          cp -r "Payload/${{ steps.config.outputs.APP_NAME }}.app" ./
+          cp -r "${{ steps.config.outputs.APP_NAME }}.app" ./
           zip -qr "${{ steps.config.outputs.APP_NAME }}-appetize.zip" \
                "${{ steps.config.outputs.APP_NAME }}.app"
           
