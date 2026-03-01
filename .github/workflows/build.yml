@@ -40,6 +40,12 @@ jobs:
           echo "MIN_IOS=$MIN_IOS" >> $GITHUB_OUTPUT
           
       - name: Generate Info.plist from scratch
+        env:
+          APP_NAME: ${{ steps.config.outputs.APP_NAME }}
+          BUNDLE_ID: ${{ steps.config.outputs.BUNDLE_ID }}
+          VERSION: ${{ steps.config.outputs.VERSION }}
+          BUILD_NUM: ${{ steps.config.outputs.BUILD_NUM }}
+          MIN_IOS: ${{ steps.config.outputs.MIN_IOS }}
         run: |
           echo "Generating Info.plist..."
           cat > App/Info.plist << EOF
@@ -50,23 +56,23 @@ jobs:
                 <key>CFBundleDevelopmentRegion</key>
                 <string>en</string>
                 <key>CFBundleExecutable</key>
-                <string>${{ steps.config.outputs.APP_NAME }}</string>
+                <string>${APP_NAME}</string>
                 <key>CFBundleIdentifier</key>
-                <string>${{ steps.config.outputs.BUNDLE_ID }}</string>
+                <string>${BUNDLE_ID}</string>
                 <key>CFBundleInfoDictionaryVersion</key>
                 <string>6.0</string>
                 <key>CFBundleName</key>
-                <string>${{ steps.config.outputs.APP_NAME }}</string>
+                <string>${APP_NAME}</string>
                 <key>CFBundlePackageType</key>
                 <string>APPL</string>
                 <key>CFBundleShortVersionString</key>
-                <string>${{ steps.config.outputs.VERSION }}</string>
+                <string>${VERSION}</string>
                 <key>CFBundleVersion</key>
-                <string>${{ steps.config.outputs.BUILD_NUM }}</string>
+                <string>${BUILD_NUM}</string>
                 <key>LSRequiresIPhoneOS</key>
                 <true/>
                 <key>MinimumOSVersion</key>
-                <string>${{ steps.config.outputs.MIN_IOS }}</string>
+                <string>${MIN_IOS}</string>
                 <key>UIDeviceFamily</key>
                 <array>
                     <integer>1</integer>
